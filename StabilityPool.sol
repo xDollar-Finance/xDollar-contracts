@@ -154,7 +154,9 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
 
     ITroveManager public troveManager;
 
-    ILUSDToken public lusdToken;
+    ILUSDToken public LUSDToken;
+
+    IERC20 public collToken;
 
     // Needed to check if there are pending liquidations
     ISortedTroves public sortedTroves;
@@ -234,6 +236,12 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
     uint public lastETHError_Offset;
     uint public lastLUSDLossError_Offset;
 
+    uint internal collDecimalAdjustment;
+
+    enum Functions { SET_ADDRESS }  
+    uint256 private constant _TIMELOCK = 2 days;
+    mapping(Functions => uint256) public timelock;
+
     // --- Events ---
 
     event StabilityPoolETHBalanceUpdated(uint _newBalance);
@@ -244,6 +252,7 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
     event ActivePoolAddressChanged(address _newActivePoolAddress);
     event DefaultPoolAddressChanged(address _newDefaultPoolAddress);
     event LUSDTokenAddressChanged(address _newLUSDTokenAddress);
+    event CollAddressChanged(address _collTokenAddress);
     event SortedTrovesAddressChanged(address _newSortedTrovesAddress);
     event PriceFeedAddressChanged(address _newPriceFeedAddress);
     event CommunityIssuanceAddressChanged(address _newCommunityIssuanceAddress);
@@ -267,46 +276,71 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
     event LQTYPaidToFrontEnd(address indexed _frontEnd, uint _LQTY);
     event EtherSent(address _to, uint _amount);
 
+    // --- Time lock
+    modifier notLocked(Functions _fn) {
+        require(
+        timelock[_fn] != 1 && timelock[_fn] <= block.timestamp,
+        "Function is timelocked"
+        );
+        _;
+    }
+    //unlock timelock
+    function unlockFunction(Functions _fn) public onlyOwner {
+        timelock[_fn] = block.timestamp + _TIMELOCK;
+    }
+    //lock timelock
+    function lockFunction(Functions _fn) public onlyOwner {
+        timelock[_fn] = 1;
+    }
+
     // --- Contract setters ---
 
     function setAddresses(
         address _borrowerOperationsAddress,
         address _troveManagerAddress,
         address _activePoolAddress,
-        address _lusdTokenAddress,
+        address _LUSDTokenAddress,
         address _sortedTrovesAddress,
         address _priceFeedAddress,
-        address _communityIssuanceAddress
+        address _communityIssuanceAddress,
+        address _collTokenAddress,
+        uint _collDecimalAdjustment
     )
         external
         override
         onlyOwner
+        notLocked(Functions.SET_ADDRESS)
     {
         checkContract(_borrowerOperationsAddress);
         checkContract(_troveManagerAddress);
         checkContract(_activePoolAddress);
-        checkContract(_lusdTokenAddress);
+        checkContract(_LUSDTokenAddress);
         checkContract(_sortedTrovesAddress);
         checkContract(_priceFeedAddress);
         checkContract(_communityIssuanceAddress);
+        checkContract(_collTokenAddress);
 
         borrowerOperations = IBorrowerOperations(_borrowerOperationsAddress);
         troveManager = ITroveManager(_troveManagerAddress);
         activePool = IActivePool(_activePoolAddress);
-        lusdToken = ILUSDToken(_lusdTokenAddress);
+        LUSDToken = ILUSDToken(_LUSDTokenAddress);
+        collToken = IERC20(_collTokenAddress);
         sortedTroves = ISortedTroves(_sortedTrovesAddress);
         priceFeed = IPriceFeed(_priceFeedAddress);
         communityIssuance = ICommunityIssuance(_communityIssuanceAddress);
+        collDecimalAdjustment = _collDecimalAdjustment;
 
         emit BorrowerOperationsAddressChanged(_borrowerOperationsAddress);
         emit TroveManagerAddressChanged(_troveManagerAddress);
         emit ActivePoolAddressChanged(_activePoolAddress);
-        emit LUSDTokenAddressChanged(_lusdTokenAddress);
+        emit LUSDTokenAddressChanged(_LUSDTokenAddress);
+        emit CollAddressChanged(_collTokenAddress);
         emit SortedTrovesAddressChanged(_sortedTrovesAddress);
         emit PriceFeedAddressChanged(_priceFeedAddress);
         emit CommunityIssuanceAddressChanged(_communityIssuanceAddress);
 
         _renounceOwnership();
+        timelock[Functions.SET_ADDRESS] = 1;
     }
 
     // --- Getters for public variables. Required by IPool interface ---
@@ -355,9 +389,9 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
         _updateFrontEndStakeAndSnapshots(frontEnd, newFrontEndStake);
         emit FrontEndStakeChanged(frontEnd, newFrontEndStake, msg.sender);
 
+        uint newDeposit = compoundedLUSDDeposit.add(_amount);
         _sendLUSDtoStabilityPool(msg.sender, _amount);
 
-        uint newDeposit = compoundedLUSDDeposit.add(_amount);
         _updateDepositAndSnapshots(msg.sender, newDeposit);
         emit UserDepositChanged(msg.sender, newDeposit);
 
@@ -402,9 +436,10 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
         emit FrontEndStakeChanged(frontEnd, newFrontEndStake, msg.sender);
 
         _sendLUSDToDepositor(msg.sender, LUSDtoWithdraw);
-
+        
         // Update deposit
         uint newDeposit = compoundedLUSDDeposit.sub(LUSDtoWithdraw);
+
         _updateDepositAndSnapshots(msg.sender, newDeposit);
         emit UserDepositChanged(msg.sender, newDeposit);
 
@@ -457,7 +492,9 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
         emit StabilityPoolETHBalanceUpdated(ETH);
         emit EtherSent(msg.sender, depositorETHGain);
 
-        borrowerOperations.moveETHGainToTrove{ value: depositorETHGain }(msg.sender, _upperHint, _lowerHint);
+        bool success = collToken.approve(address(borrowerOperations), depositorETHGain);
+        require(success, "StabilityPool: Cannot approve borrower operation to use collateral");
+        borrowerOperations.moveETHGainToTrove(msg.sender, depositorETHGain, _upperHint, _lowerHint);
     }
 
     // --- LQTY issuance functions ---
@@ -548,7 +585,7 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
         * 4) Store these errors for use in the next correction when this function is called.
         * 5) Note: static analysis tools complain about this "division before multiplication", however, it is intended.
         */
-        uint ETHNumerator = _collToAdd.mul(DECIMAL_PRECISION).add(lastETHError_Offset);
+        uint ETHNumerator = _collToAdd.mul(collDecimalAdjustment).mul(DECIMAL_PRECISION).add(lastETHError_Offset);
 
         assert(_debtToOffset <= _totalLUSDDeposits);
         if (_debtToOffset == _totalLUSDDeposits) {
@@ -629,7 +666,7 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
         _decreaseLUSD(_debtToOffset);
 
         // Burn the debt that was successfully offset
-        lusdToken.burn(address(this), _debtToOffset);
+        LUSDToken.burn(address(this), _debtToOffset);
 
         activePoolCached.sendETH(address(this), _collToAdd);
     }
@@ -666,13 +703,11 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
         */
         uint128 epochSnapshot = snapshots.epoch;
         uint128 scaleSnapshot = snapshots.scale;
-        uint S_Snapshot = snapshots.S;
-        uint P_Snapshot = snapshots.P;
 
-        uint firstPortion = epochToScaleToSum[epochSnapshot][scaleSnapshot].sub(S_Snapshot);
+        uint firstPortion = epochToScaleToSum[epochSnapshot][scaleSnapshot].sub(snapshots.S);
         uint secondPortion = epochToScaleToSum[epochSnapshot][scaleSnapshot.add(1)].div(SCALE_FACTOR);
 
-        uint ETHGain = initialDeposit.mul(firstPortion.add(secondPortion)).div(P_Snapshot).div(DECIMAL_PRECISION);
+        uint ETHGain = initialDeposit.mul(firstPortion.add(secondPortion)).div(snapshots.P).div(DECIMAL_PRECISION).div(collDecimalAdjustment);
 
         return ETHGain;
     }
@@ -823,7 +858,7 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
 
     // Transfer the LUSD tokens from the user to the Stability Pool's address, and update its recorded LUSD
     function _sendLUSDtoStabilityPool(address _address, uint _amount) internal {
-        lusdToken.sendToPool(_address, address(this), _amount);
+        LUSDToken.sendToPool(_address, address(this), _amount);
         uint newTotalLUSDDeposits = totalLUSDDeposits.add(_amount);
         totalLUSDDeposits = newTotalLUSDDeposits;
         emit StabilityPoolLUSDBalanceUpdated(newTotalLUSDDeposits);
@@ -836,7 +871,7 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
         emit StabilityPoolETHBalanceUpdated(newETH);
         emit EtherSent(msg.sender, _amount);
 
-        (bool success, ) = msg.sender.call{ value: _amount }("");
+        bool success = collToken.transfer(msg.sender, _amount);
         require(success, "StabilityPool: sending ETH failed");
     }
 
@@ -844,7 +879,7 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
     function _sendLUSDToDepositor(address _depositor, uint LUSDWithdrawal) internal {
         if (LUSDWithdrawal == 0) {return;}
 
-        lusdToken.returnFromPool(address(this), _depositor, LUSDWithdrawal);
+        LUSDToken.returnFromPool(address(this), _depositor, LUSDWithdrawal);
         _decreaseLUSD(LUSDWithdrawal);
     }
 
@@ -988,11 +1023,25 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
         require (_kickbackRate <= DECIMAL_PRECISION, "StabilityPool: Kickback rate must be in range [0,1]");
     }
 
-    // --- Fallback function ---
-
-    receive() external payable {
+    // This function is used to replace the commented-out fallback function to receive funds and apply
+    // additional logics.
+    function depositColl(uint _amount) external override {
         _requireCallerIsActivePool();
-        ETH = ETH.add(msg.value);
+        bool success = collToken.transferFrom(msg.sender, address(this), _amount);
+        require(success, "DefaultPool: receiveWETH failed");
+        ETH = ETH.add(_amount);
         StabilityPoolETHBalanceUpdated(ETH);
-    }
+    } 
+
+    // --- Fallback function ---
+    // 
+    // Fallback is often used for smart contract to receive Ether from other contracts and wallets.
+    // In Polygon, this means receiving MATIC. To enable an ERC20 token as collateral, we don't need
+    // this function anymore.
+    //
+    // receive() external payable {
+    //     _requireCallerIsActivePool();
+    //     ETH = ETH.add(msg.value);
+    //     StabilityPoolETHBalanceUpdated(ETH);
+    // }
 }

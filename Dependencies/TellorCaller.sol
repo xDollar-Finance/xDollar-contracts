@@ -21,6 +21,7 @@ contract TellorCaller is ITellorCaller {
     ITellor public tellor;
 
     constructor (address _tellorMasterAddress) public {
+        require(_tellorMasterAddress != address(0), "_tellorMasterAddress is zero address!");
         tellor = ITellor(_tellorMasterAddress);
     }
 

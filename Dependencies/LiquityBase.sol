@@ -5,6 +5,7 @@ pragma solidity 0.6.11;
 import "./BaseMath.sol";
 import "./LiquityMath.sol";
 import "../Interfaces/IActivePool.sol";
+import "../Interfaces/IStableCollActivePool.sol";
 import "../Interfaces/IDefaultPool.sol";
 import "../Interfaces/IPriceFeed.sol";
 import "../Interfaces/ILiquityBase.sol";
@@ -21,6 +22,9 @@ contract LiquityBase is BaseMath, ILiquityBase {
     // Minimum collateral ratio for individual troves
     uint constant public MCR = 1100000000000000000; // 110%
 
+    // Minimum stablecoin collateral ratio for individual troves
+    uint constant public MSCR = 1000000000000000000; // 100%
+
     // Critical system collateral ratio. If the system's total collateral ratio (TCR) falls below the CCR, Recovery Mode is triggered.
     uint constant public CCR = 1500000000000000000; // 150%
 
@@ -29,13 +33,29 @@ contract LiquityBase is BaseMath, ILiquityBase {
 
     // Minimum amount of net LUSD debt a trove must have
     uint constant public MIN_NET_DEBT = 450e18;
-    // uint constant public MIN_NET_DEBT = 0; 
+
+    uint constant public MIN_SWAP_NET_DEBT = 1e18; 
 
     uint constant public PERCENT_DIVISOR = 200; // dividing by 200 yields 0.5%
 
-    uint constant public BORROWING_FEE_FLOOR = DECIMAL_PRECISION / 1000 * 5; // 0.5%
+    uint constant public STABLE_COLL_BORROWING_RATE = DECIMAL_PRECISION / 100; // 1%
+
+    uint constant public STABLE_COLL_COLLATERAL_RARIO = 1010000000000000000; // 101%
+
+    uint constant public BRIDGE_SWAP_COLLATERAL_RARIO = 1000000000000000000; // 100%
+
+    uint constant public STABLE_COLL_COLLATERAL_RARIO_DIVIDEND = 101;
+
+    uint constant public STABLE_COLL_COLLATERAL_RARIO_DIVISOR = 100; 
+
+    uint constant public STABLE_COLL_DEBT_CEILING = DECIMAL_PRECISION * 1e4; // 10,000
+
+    uint constant public COLL_DEBT_CEILING = DECIMAL_PRECISION * 1e4; // 10,000
+    
+    uint constant public BORROWING_FEE_FLOOR = DECIMAL_PRECISION / 1000 * 4; // 0.4%
 
     IActivePool public activePool;
+    IStableCollActivePool public stableCollActivePool;
 
     IDefaultPool public defaultPool;
 
@@ -57,31 +77,39 @@ contract LiquityBase is BaseMath, ILiquityBase {
         return _entireColl / PERCENT_DIVISOR;
     }
 
-    function getEntireSystemColl() public view returns (uint entireSystemColl) {
+    function getEntireSystemColl() public view returns (uint) {
         uint activeColl = activePool.getETH();
         uint liquidatedColl = defaultPool.getETH();
 
         return activeColl.add(liquidatedColl);
     }
 
-    function getEntireSystemDebt() public view returns (uint entireSystemDebt) {
+    function getEntireSystemStableColl() public view returns (uint) {
+        return stableCollActivePool.getETH();
+    }
+
+    function getEntireSystemDebt() public view returns (uint) {
         uint activeDebt = activePool.getLUSDDebt();
         uint closedDebt = defaultPool.getLUSDDebt();
 
         return activeDebt.add(closedDebt);
     }
 
-    function _getTCR(uint _price) internal view returns (uint TCR) {
+    function getEntireSystemStableDebt() public view returns (uint) {
+        return stableCollActivePool.getLUSDDebt();
+    }
+
+    function _getTCR(uint _price, uint _collDecimalAdjustment) internal view returns (uint) {
         uint entireSystemColl = getEntireSystemColl();
         uint entireSystemDebt = getEntireSystemDebt();
 
-        TCR = LiquityMath._computeCR(entireSystemColl, entireSystemDebt, _price);
+        uint TCR = LiquityMath._computeCR(entireSystemColl, entireSystemDebt, _price, _collDecimalAdjustment);
 
         return TCR;
     }
 
-    function _checkRecoveryMode(uint _price) internal view returns (bool) {
-        uint TCR = _getTCR(_price);
+    function _checkRecoveryMode(uint _price, uint _collDecimalAdjustment) internal view returns (bool) {
+        uint TCR = _getTCR(_price, _collDecimalAdjustment);
 
         return TCR < CCR;
     }

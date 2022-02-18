@@ -10,6 +10,7 @@ interface ICollSurplusPool {
     event BorrowerOperationsAddressChanged(address _newBorrowerOperationsAddress);
     event TroveManagerAddressChanged(address _newTroveManagerAddress);
     event ActivePoolAddressChanged(address _newActivePoolAddress);
+    event CollTokenAddressChanged(address _collTokenAddress);
 
     event CollBalanceUpdated(address indexed _account, uint _newBalance);
     event EtherSent(address _to, uint _amount);
@@ -19,7 +20,8 @@ interface ICollSurplusPool {
     function setAddresses(
         address _borrowerOperationsAddress,
         address _troveManagerAddress,
-        address _activePoolAddress
+        address _activePoolAddress,
+        address _collTokenAddress
     ) external;
 
     function getETH() external view returns (uint);
@@ -29,4 +31,6 @@ interface ICollSurplusPool {
     function accountSurplus(address _account, uint _amount) external;
 
     function claimColl(address _account) external;
+
+    function depositColl(uint _amount) external;
 }

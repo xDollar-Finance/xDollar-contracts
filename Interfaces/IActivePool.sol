@@ -11,7 +11,9 @@ interface IActivePool is IPool {
     event TroveManagerAddressChanged(address _newTroveManagerAddress);
     event ActivePoolLUSDDebtUpdated(uint _LUSDDebt);
     event ActivePoolETHBalanceUpdated(uint _ETH);
+    event CollAddressChanged(address _wethTokenAddress);
 
     // --- Functions ---
     function sendETH(address _account, uint _amount) external;
+    function notifyFee(address _feeForwarderAddress, uint _amount) external; 
 }

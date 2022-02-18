@@ -3,6 +3,8 @@
 pragma solidity 0.6.11;
 
 import './Interfaces/IDefaultPool.sol';
+import './Interfaces/IActivePool.sol';
+import "./Dependencies/IERC20.sol";
 import "./Dependencies/SafeMath.sol";
 import "./Dependencies/Ownable.sol";
 import "./Dependencies/CheckContract.sol";
@@ -24,30 +26,61 @@ contract DefaultPool is Ownable, CheckContract, IDefaultPool {
     address public activePoolAddress;
     uint256 internal ETH;  // deposited ETH tracker
     uint256 internal LUSDDebt;  // debt
+    IERC20 public collToken;
+    IActivePool activePool;
+
+    enum Functions { SET_ADDRESS }  
+    uint256 private constant _TIMELOCK = 2 days;
+    mapping(Functions => uint256) public timelock;
 
     event TroveManagerAddressChanged(address _newTroveManagerAddress);
     event DefaultPoolLUSDDebtUpdated(uint _LUSDDebt);
     event DefaultPoolETHBalanceUpdated(uint _ETH);
+    event CollTokenAddressUpdated(address _collTokenAddress);
+
+    // --- Time lock
+    modifier notLocked(Functions _fn) {
+        require(
+        timelock[_fn] != 1 && timelock[_fn] <= block.timestamp,
+        "Function is timelocked"
+        );
+        _;
+    }
+    //unlock timelock
+    function unlockFunction(Functions _fn) public onlyOwner {
+        timelock[_fn] = block.timestamp + _TIMELOCK;
+    }
+    //lock timelock
+    function lockFunction(Functions _fn) public onlyOwner {
+        timelock[_fn] = 1;
+    }
 
     // --- Dependency setters ---
 
     function setAddresses(
         address _troveManagerAddress,
-        address _activePoolAddress
+        address _activePoolAddress,
+        address _collTokenAddress
     )
         external
         onlyOwner
+        notLocked(Functions.SET_ADDRESS)
     {
         checkContract(_troveManagerAddress);
         checkContract(_activePoolAddress);
+        checkContract(_collTokenAddress);
 
         troveManagerAddress = _troveManagerAddress;
         activePoolAddress = _activePoolAddress;
+        collToken = IERC20(_collTokenAddress);
+        activePool = IActivePool(_activePoolAddress);
 
         emit TroveManagerAddressChanged(_troveManagerAddress);
         emit ActivePoolAddressChanged(_activePoolAddress);
+        emit CollTokenAddressUpdated(_collTokenAddress);
 
         _renounceOwnership();
+        timelock[Functions.SET_ADDRESS] = 1;
     }
 
     // --- Getters for public variables. Required by IPool interface ---
@@ -69,13 +102,14 @@ contract DefaultPool is Ownable, CheckContract, IDefaultPool {
 
     function sendETHToActivePool(uint _amount) external override {
         _requireCallerIsTroveManager();
-        address activePool = activePoolAddress; // cache to save an SLOAD
+        address cachedActivePoolAddress = activePoolAddress; // cache to save an SLOAD
         ETH = ETH.sub(_amount);
         emit DefaultPoolETHBalanceUpdated(ETH);
-        emit EtherSent(activePool, _amount);
+        emit EtherSent(cachedActivePoolAddress, _amount);
 
-        (bool success, ) = activePool.call{ value: _amount }("");
-        require(success, "DefaultPool: sending ETH failed");
+        bool success = collToken.approve(address(cachedActivePoolAddress), _amount);
+        require(success, "DefaultPool: Can't approve active pool to use Collateral");
+        activePool.depositColl(_amount);
     }
 
     function increaseLUSDDebt(uint _amount) external override {
@@ -100,11 +134,13 @@ contract DefaultPool is Ownable, CheckContract, IDefaultPool {
         require(msg.sender == troveManagerAddress, "DefaultPool: Caller is not the TroveManager");
     }
 
-    // --- Fallback function ---
-
-    receive() external payable {
+    // This function is used to replace the commented-out fallback function to receive funds and apply
+    // additional logics.
+    function depositColl(uint _amount) external override {
         _requireCallerIsActivePool();
-        ETH = ETH.add(msg.value);
+        bool success = collToken.transferFrom(msg.sender, address(this), _amount);
+        require(success, "DefaultPool: receiveWETH failed");
+        ETH = ETH.add(_amount);
         emit DefaultPoolETHBalanceUpdated(ETH);
-    }
+    } 
 }

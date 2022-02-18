@@ -29,26 +29,46 @@ contract LockupContractFactory is ILockupContractFactory, Ownable, CheckContract
     // --- Data ---
     string constant public NAME = "LockupContractFactory";
 
-    uint constant public SECONDS_IN_ONE_YEAR = 31536000;
-
     address public lqtyTokenAddress;
     
     mapping (address => address) public lockupContractToDeployer;
+
+    enum Functions { SET_ADDRESS }  
+    uint256 private constant _TIMELOCK = 1 days;
+    mapping(Functions => uint256) public timelock;
 
     // --- Events ---
 
     event LQTYTokenAddressSet(address _lqtyTokenAddress);
     event LockupContractDeployedThroughFactory(address _lockupContractAddress, address _beneficiary, uint _unlockTime, address _deployer);
 
+    // --- Time lock
+    modifier notLocked(Functions _fn) {
+        require(
+        timelock[_fn] != 1 && timelock[_fn] <= block.timestamp,
+        "Function is timelocked"
+        );
+        _;
+    }
+    //unlock timelock
+    function unlockFunction(Functions _fn) public onlyOwner {
+        timelock[_fn] = block.timestamp + _TIMELOCK;
+    }
+    //lock timelock
+    function lockFunction(Functions _fn) public onlyOwner {
+        timelock[_fn] = 1;
+    }
+
     // --- Functions ---
 
-    function setLQTYTokenAddress(address _lqtyTokenAddress) external override onlyOwner {
+    function setLQTYTokenAddress(address _lqtyTokenAddress) external override onlyOwner notLocked(Functions.SET_ADDRESS) {
         checkContract(_lqtyTokenAddress);
 
         lqtyTokenAddress = _lqtyTokenAddress;
         emit LQTYTokenAddressSet(_lqtyTokenAddress);
 
         _renounceOwnership();
+        timelock[Functions.SET_ADDRESS] = 1;
     }
 
     function deployLockupContract(address _beneficiary, uint _unlockTime) external override {

@@ -3,6 +3,7 @@
 pragma solidity 0.6.11;
 
 import "./Interfaces/ICollSurplusPool.sol";
+import "./Dependencies/IERC20.sol";
 import "./Dependencies/SafeMath.sol";
 import "./Dependencies/Ownable.sol";
 import "./Dependencies/CheckContract.sol";
@@ -23,6 +24,12 @@ contract CollSurplusPool is Ownable, CheckContract, ICollSurplusPool {
     // Collateral surplus claimable by trove owners
     mapping (address => uint) internal balances;
 
+    IERC20 public collToken;
+
+    enum Functions { SET_ADDRESS }  
+    uint256 private constant _TIMELOCK = 2 days;
+    mapping(Functions => uint256) public timelock;
+
     // --- Events ---
 
     event BorrowerOperationsAddressChanged(address _newBorrowerOperationsAddress);
@@ -32,30 +39,53 @@ contract CollSurplusPool is Ownable, CheckContract, ICollSurplusPool {
     event CollBalanceUpdated(address indexed _account, uint _newBalance);
     event EtherSent(address _to, uint _amount);
     
+    // --- Time lock
+    modifier notLocked(Functions _fn) {
+        require(
+        timelock[_fn] != 1 && timelock[_fn] <= block.timestamp,
+        "Function is timelocked"
+        );
+        _;
+    }
+    //unlock timelock
+    function unlockFunction(Functions _fn) public onlyOwner {
+        timelock[_fn] = block.timestamp + _TIMELOCK;
+    }
+    //lock timelock
+    function lockFunction(Functions _fn) public onlyOwner {
+        timelock[_fn] = 1;
+    }
+
     // --- Contract setters ---
 
     function setAddresses(
         address _borrowerOperationsAddress,
         address _troveManagerAddress,
-        address _activePoolAddress
+        address _activePoolAddress,
+        address _collTokenAddress
     )
         external
         override
         onlyOwner
+        notLocked(Functions.SET_ADDRESS)
     {
         checkContract(_borrowerOperationsAddress);
         checkContract(_troveManagerAddress);
         checkContract(_activePoolAddress);
+        checkContract(_collTokenAddress);
 
         borrowerOperationsAddress = _borrowerOperationsAddress;
         troveManagerAddress = _troveManagerAddress;
         activePoolAddress = _activePoolAddress;
+        collToken = IERC20(_collTokenAddress);
 
         emit BorrowerOperationsAddressChanged(_borrowerOperationsAddress);
         emit TroveManagerAddressChanged(_troveManagerAddress);
         emit ActivePoolAddressChanged(_activePoolAddress);
+        emit CollTokenAddressChanged(_collTokenAddress);
 
         _renounceOwnership();
+        timelock[Functions.SET_ADDRESS] = 1;
     }
 
     /* Returns the ETH state variable at ActivePool address.
@@ -90,7 +120,7 @@ contract CollSurplusPool is Ownable, CheckContract, ICollSurplusPool {
         ETH = ETH.sub(claimableColl);
         emit EtherSent(_account, claimableColl);
 
-        (bool success, ) = _account.call{ value: claimableColl }("");
+        bool success = collToken.transfer(_account, claimableColl);
         require(success, "CollSurplusPool: sending ETH failed");
     }
 
@@ -114,10 +144,12 @@ contract CollSurplusPool is Ownable, CheckContract, ICollSurplusPool {
             "CollSurplusPool: Caller is not Active Pool");
     }
 
-    // --- Fallback function ---
-
-    receive() external payable {
+    // This function is used to replace the commented-out fallback function to receive funds and apply
+    // additional logics.
+    function depositColl(uint _amount) external override {
         _requireCallerIsActivePool();
-        ETH = ETH.add(msg.value);
-    }
+        bool success = collToken.transferFrom(msg.sender, address(this), _amount);
+        require(success, "CollSurplusPool: receiveWETH failed");
+        ETH = ETH.add(_amount);
+    } 
 }

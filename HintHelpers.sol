@@ -14,30 +14,57 @@ contract HintHelpers is LiquityBase, Ownable, CheckContract {
     ISortedTroves public sortedTroves;
     ITroveManager public troveManager;
 
+    uint private _collDecimalAdjustment;
+
+    enum Functions { SET_ADDRESS }  
+    uint256 private constant _TIMELOCK = 2 days;
+    mapping(Functions => uint256) public timelock;
+
     // --- Events ---
 
     event SortedTrovesAddressChanged(address _sortedTrovesAddress);
     event TroveManagerAddressChanged(address _troveManagerAddress);
 
+    // --- Time lock
+    modifier notLocked(Functions _fn) {
+        require(
+        timelock[_fn] != 1 && timelock[_fn] <= block.timestamp,
+        "Function is timelocked"
+        );
+        _;
+    }
+    //unlock timelock
+    function unlockFunction(Functions _fn) public onlyOwner {
+        timelock[_fn] = block.timestamp + _TIMELOCK;
+    }
+    //lock timelock
+    function lockFunction(Functions _fn) public onlyOwner {
+        timelock[_fn] = 1;
+    }
+
     // --- Dependency setters ---
 
     function setAddresses(
         address _sortedTrovesAddress,
-        address _troveManagerAddress
+        address _troveManagerAddress,
+        uint collDecimalAdjustment
     )
         external
         onlyOwner
+        notLocked(Functions.SET_ADDRESS)
     {
         checkContract(_sortedTrovesAddress);
         checkContract(_troveManagerAddress);
 
         sortedTroves = ISortedTroves(_sortedTrovesAddress);
         troveManager = ITroveManager(_troveManagerAddress);
+        _collDecimalAdjustment = collDecimalAdjustment;
 
         emit SortedTrovesAddressChanged(_sortedTrovesAddress);
         emit TroveManagerAddressChanged(_troveManagerAddress);
 
         _renounceOwnership();
+        timelock[Functions.SET_ADDRESS] = 1;
     }
 
     // --- Functions ---
@@ -98,11 +125,11 @@ contract HintHelpers is LiquityBase, Ownable, CheckContract {
                     uint ETH = troveManager.getTroveColl(currentTroveuser)
                         .add(troveManager.getPendingETHReward(currentTroveuser));
 
-                    uint newColl = ETH.sub(maxRedeemableLUSD.mul(DECIMAL_PRECISION).div(_price));
+                    uint newColl = ETH.sub(maxRedeemableLUSD.mul(DECIMAL_PRECISION).div(_price).div(_collDecimalAdjustment));
                     uint newDebt = netLUSDDebt.sub(maxRedeemableLUSD);
 
                     uint compositeDebt = _getCompositeDebt(newDebt);
-                    partialRedemptionHintNICR = LiquityMath._computeNominalCR(newColl, compositeDebt);
+                    partialRedemptionHintNICR = LiquityMath._computeNominalCR(newColl, compositeDebt, _collDecimalAdjustment);
 
                     remainingLUSD = remainingLUSD.sub(maxRedeemableLUSD);
                 }
@@ -161,11 +188,11 @@ contract HintHelpers is LiquityBase, Ownable, CheckContract {
         }
     }
 
-    function computeNominalCR(uint _coll, uint _debt) external pure returns (uint) {
-        return LiquityMath._computeNominalCR(_coll, _debt);
+    function computeNominalCR(uint _coll, uint _debt) external view returns (uint) {
+        return LiquityMath._computeNominalCR(_coll, _debt, _collDecimalAdjustment);
     }
 
-    function computeCR(uint _coll, uint _debt, uint _price) external pure returns (uint) {
-        return LiquityMath._computeCR(_coll, _debt, _price);
+    function computeCR(uint _coll, uint _debt, uint _price) external view returns (uint) {
+        return LiquityMath._computeCR(_coll, _debt, _price, _collDecimalAdjustment);
     }
 }

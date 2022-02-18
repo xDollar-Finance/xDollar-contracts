@@ -71,8 +71,8 @@ contract LPTokenWrapper is ILPTokenWrapper {
  * either LQTY token contract is deployed, and therefore LQTY tokens are minted to Unipool contract,
  * or first liquidity provider stakes UNIv2 LP tokens into it.
  */
-contract Unipool is LPTokenWrapper, Ownable, CheckContract, IUnipool {
-    string constant public NAME = "Unipool";
+contract USDCUnipool is LPTokenWrapper, Ownable, CheckContract, IUnipool {
+    string constant public NAME = "USDCUnipool";
 
     uint256 public duration;
     ILQTYToken public lqtyToken;
@@ -100,7 +100,7 @@ contract Unipool is LPTokenWrapper, Ownable, CheckContract, IUnipool {
     // --- Time lock
     modifier notLocked(Functions _fn) {
         require(
-        timelock[_fn] != 1 && timelock[_fn] <= block.timestamp,
+        timelock[_fn] != 0 && timelock[_fn] <= block.timestamp,
         "Function is timelocked"
         );
         _;
@@ -111,7 +111,7 @@ contract Unipool is LPTokenWrapper, Ownable, CheckContract, IUnipool {
     }
     //lock timelock
     function lockFunction(Functions _fn) public onlyOwner {
-        timelock[_fn] = 1;
+        timelock[_fn] = 0;
     }
 
     // initialization function
@@ -132,13 +132,13 @@ contract Unipool is LPTokenWrapper, Ownable, CheckContract, IUnipool {
         lqtyToken = ILQTYToken(_lqtyTokenAddress);
         duration = _duration;
 
-        _notifyRewardAmount(_1_MILLION.div(10).mul(4), _duration);
+        _notifyRewardAmount(_1_MILLION.div(10), _duration);
 
         emit LQTYTokenAddressChanged(_lqtyTokenAddress);
         emit UniTokenAddressChanged(_uniTokenAddress);
 
         _renounceOwnership();
-        timelock[Functions.SET_ADDRESS] = 1;
+        timelock[Functions.SET_ADDRESS] = 0;
     }
 
     // Returns current timestamp if the rewards program has not finished yet, end time otherwise
@@ -217,8 +217,8 @@ contract Unipool is LPTokenWrapper, Ownable, CheckContract, IUnipool {
 
     // Used only on initialization, sets the reward rate and the end time for the program
     function _notifyRewardAmount(uint256 _reward, uint256 _duration) internal {
-        require(_reward > 0, "_reward is less or equal to zero");
-        require(_reward == lqtyToken.balanceOf(address(this)), "_reward takes all balance of lqty token");
+        require(_reward > 0, "_reward is less or equal than zero");
+        require(_reward == lqtyToken.balanceOf(address(this)), "_reward takes full balance of lqty token");
         require(periodFinish == 0, "period finish is not zero");
 
         _updateReward();
@@ -260,7 +260,7 @@ contract Unipool is LPTokenWrapper, Ownable, CheckContract, IUnipool {
     function _updateAccountReward(address account) internal {
         _updateReward();
 
-        require(account != address(0), "account address is zero");
+        require(account != address(0), "account address is zero!");
 
         rewards[account] = earned(account);
         userRewardPerTokenPaid[account] = rewardPerTokenStored;

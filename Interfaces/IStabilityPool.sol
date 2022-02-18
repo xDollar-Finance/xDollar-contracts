@@ -45,6 +45,7 @@ interface IStabilityPool {
     event ActivePoolAddressChanged(address _newActivePoolAddress);
     event DefaultPoolAddressChanged(address _newDefaultPoolAddress);
     event LUSDTokenAddressChanged(address _newLUSDTokenAddress);
+    event CollAddressChanged(address _collTokenAddress);
     event SortedTrovesAddressChanged(address _newSortedTrovesAddress);
     event PriceFeedAddressChanged(address _newPriceFeedAddress);
     event CommunityIssuanceAddressChanged(address _newCommunityIssuanceAddress);
@@ -78,10 +79,12 @@ interface IStabilityPool {
         address _borrowerOperationsAddress,
         address _troveManagerAddress,
         address _activePoolAddress,
-        address _lusdTokenAddress,
+        address _LUSDTokenAddress,
         address _sortedTrovesAddress,
         address _priceFeedAddress,
-        address _communityIssuanceAddress
+        address _communityIssuanceAddress,
+        address _collTokenAddress,
+        uint _collDecimalAdjustment
     ) external;
 
     /*
@@ -189,6 +192,7 @@ interface IStabilityPool {
      */
     function getCompoundedFrontEndStake(address _frontEnd) external view returns (uint);
 
+    function depositColl(uint _amount) external;
     /*
      * Fallback function
      * Only callable by Active Pool, it just accounts for ETH received

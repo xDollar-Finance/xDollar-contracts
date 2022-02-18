@@ -7,6 +7,8 @@ interface ICommunityIssuance {
     // --- Events ---
     
     event LQTYTokenAddressSet(address _lqtyTokenAddress);
+    event RewardTokenAdded(address _rewardTokenAddress, uint rewardRatio);
+    event RewardRatioUpdated(address _rewardTokenAddress, uint rewardRatio);
     event StabilityPoolAddressSet(address _stabilityPoolAddress);
     event TotalLQTYIssuedUpdated(uint _totalLQTYIssued);
 
@@ -17,4 +19,8 @@ interface ICommunityIssuance {
     function issueLQTY() external returns (uint);
 
     function sendLQTY(address _account, uint _LQTYamount) external;
+
+    function addRewardToken(address _rewardTokenAddress, uint rewardTokenRatio) external;
+
+    function setRewardTokenRatio(address _rewardTokenAddress, uint _rewardRatio) external;
 }

@@ -79,8 +79,29 @@ contract PriceFeed is Ownable, CheckContract, BaseMath, IPriceFeed {
     // The current status of the PricFeed, which determines the conditions for the next price fetch attempt
     Status public status;
 
+    enum Functions { SET_ADDRESS }  
+    uint256 private constant _TIMELOCK = 2 days;
+    mapping(Functions => uint256) public timelock;
+
     event LastGoodPriceUpdated(uint _lastGoodPrice);
     event PriceFeedStatusChanged(Status newStatus);
+
+    // --- Time lock
+    modifier notLocked(Functions _fn) {
+        require(
+        timelock[_fn] != 1 && timelock[_fn] <= block.timestamp,
+        "Function is timelocked"
+        );
+        _;
+    }
+    //unlock timelock
+    function unlockFunction(Functions _fn) public onlyOwner {
+        timelock[_fn] = block.timestamp + _TIMELOCK;
+    }
+    //lock timelock
+    function lockFunction(Functions _fn) public onlyOwner {
+        timelock[_fn] = 1;
+    }
 
     // --- Dependency setters ---
     
@@ -90,6 +111,7 @@ contract PriceFeed is Ownable, CheckContract, BaseMath, IPriceFeed {
     )
         external
         onlyOwner
+        notLocked(Functions.SET_ADDRESS)
     {
         checkContract(_priceAggregatorAddress);
         checkContract(_tellorCallerAddress);
@@ -110,6 +132,7 @@ contract PriceFeed is Ownable, CheckContract, BaseMath, IPriceFeed {
         _storeChainlinkPrice(chainlinkResponse);
 
         _renounceOwnership();
+        timelock[Functions.SET_ADDRESS] = 1;
     }
 
     // --- Functions ---

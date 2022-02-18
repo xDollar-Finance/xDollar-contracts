@@ -6,7 +6,6 @@ import "./ILiquityBase.sol";
 import "./IStabilityPool.sol";
 import "./ILUSDToken.sol";
 import "./ILQTYToken.sol";
-import "./ILQTYStaking.sol";
 
 
 // Common interface for the Trove Manager.
@@ -24,7 +23,8 @@ interface ITroveManager is ILiquityBase {
     event CollSurplusPoolAddressChanged(address _collSurplusPoolAddress);
     event SortedTrovesAddressChanged(address _sortedTrovesAddress);
     event LQTYTokenAddressChanged(address _lqtyTokenAddress);
-    event LQTYStakingAddressChanged(address _lqtyStakingAddress);
+    event RedemptionFeePoolParamsChanged(address _redemptionFeePoolAddress, uint _redemptionFeePoolRate);
+    event FeeAdminAddressChanged(address _feeAdminAddress);      
 
     event Liquidation(uint _liquidatedDebt, uint _liquidatedColl, uint _collGasCompensation, uint _LUSDGasCompensation);
     event Redemption(uint _attemptedLUSDAmount, uint _actualLUSDAmount, uint _ETHSent, uint _ETHFee);
@@ -51,13 +51,13 @@ interface ITroveManager is ILiquityBase {
         address _lusdTokenAddress,
         address _sortedTrovesAddress,
         address _lqtyTokenAddress,
-        address _lqtyStakingAddress
+        address _collTokenAddress,
+        uint collDecimalAdjustment
     ) external;
 
     function stabilityPool() external view returns (IStabilityPool);
     function lusdToken() external view returns (ILUSDToken);
     function lqtyToken() external view returns (ILQTYToken);
-    function lqtyStaking() external view returns (ILQTYStaking);
 
     function getTroveOwnersCount() external view returns (uint);
 
@@ -117,6 +117,8 @@ interface ITroveManager is ILiquityBase {
 
     function getBorrowingFee(uint LUSDDebt) external view returns (uint);
     function getBorrowingFeeWithDecay(uint _LUSDDebt) external view returns (uint);
+
+    function getDebtCeiling() external view returns (uint);
 
     function decayBaseRateFromBorrowing() external;
 

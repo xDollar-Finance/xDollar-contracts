@@ -89,9 +89,9 @@ library LiquityMath {
         return (_a >= _b) ? _a.sub(_b) : _b.sub(_a);
     }
 
-    function _computeNominalCR(uint _coll, uint _debt) internal pure returns (uint) {
+    function _computeNominalCR(uint _coll, uint _debt, uint _collDecimalAdjustment) internal pure returns (uint) {
         if (_debt > 0) {
-            return _coll.mul(NICR_PRECISION).div(_debt);
+            return _coll.mul(_collDecimalAdjustment).mul(NICR_PRECISION).div(_debt);
         }
         // Return the maximal value for uint256 if the Trove has a debt of 0. Represents "infinite" CR.
         else { // if (_debt == 0)
@@ -99,9 +99,9 @@ library LiquityMath {
         }
     }
 
-    function _computeCR(uint _coll, uint _debt, uint _price) internal pure returns (uint) {
+    function _computeCR(uint _coll, uint _debt, uint _price, uint _collDecimalAdjustment) internal pure returns (uint) {
         if (_debt > 0) {
-            uint newCollRatio = _coll.mul(_price).div(_debt);
+            uint newCollRatio = _coll.mul(_collDecimalAdjustment).mul(_price).div(_debt);
 
             return newCollRatio;
         }

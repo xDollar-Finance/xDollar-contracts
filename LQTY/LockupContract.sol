@@ -22,8 +22,6 @@ contract LockupContract {
     // --- Data ---
     string constant public NAME = "LockupContract";
 
-    uint constant public SECONDS_IN_HALF_YEAR = 15768000; 
-
     address public immutable beneficiary;
 
     ILQTYToken public lqtyToken;
@@ -46,13 +44,10 @@ contract LockupContract {
     )
         public 
     {
+        require(_lqtyTokenAddress != address(0), "_lqtyTokenAddress is zero address!");
+        require(_beneficiary != address(0), "_beneficiary is zero address!");
         lqtyToken = ILQTYToken(_lqtyTokenAddress);
 
-        /*
-        * Set the unlock time to a chosen instant in the future, as long as it is at least 1 year after
-        * the system was deployed 
-        */
-        _requireUnlockTimeIsAtLeastOneYearAfterSystemDeployment(_unlockTime);
         unlockTime = _unlockTime;
         
         beneficiary =  _beneficiary;
@@ -65,7 +60,7 @@ contract LockupContract {
 
         ILQTYToken lqtyTokenCached = lqtyToken;
         uint LQTYBalance = lqtyTokenCached.balanceOf(address(this));
-        lqtyTokenCached.transfer(beneficiary, LQTYBalance);
+        require(lqtyTokenCached.transfer(beneficiary, LQTYBalance), "LockupContract: LQTY transfer failed.");
         emit LockupContractEmptied(LQTYBalance);
     }
 
@@ -77,10 +72,5 @@ contract LockupContract {
 
     function _requireLockupDurationHasPassed() internal view {
         require(block.timestamp >= unlockTime, "LockupContract: The lockup duration must have passed");
-    }
-
-    function _requireUnlockTimeIsAtLeastOneYearAfterSystemDeployment(uint _unlockTime) internal view {
-        uint systemDeploymentTime = lqtyToken.getDeploymentStartTime();
-        require(_unlockTime >= systemDeploymentTime.add(SECONDS_IN_HALF_YEAR), "LockupContract: unlock time must be at least half year after system deployment");
     }
 }

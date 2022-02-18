@@ -10,13 +10,10 @@ interface ILQTYToken is IERC20, IERC2612 {
     // --- Events ---
     
     event CommunityIssuanceAddressSet(address _communityIssuanceAddress);
-    event LQTYStakingAddressSet(address _lqtyStakingAddress);
     event LockupContractFactoryAddressSet(address _lockupContractFactoryAddress);
 
     // --- Functions ---
     
-    function sendToLQTYStaking(address _sender, uint256 _amount) external;
-
     function getDeploymentStartTime() external view returns (uint256);
 
     function getLpRewardsEntitlement() external view returns (uint256);
